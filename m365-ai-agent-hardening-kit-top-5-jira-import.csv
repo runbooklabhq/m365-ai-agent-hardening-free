@@ -1,0 +1,108 @@
+Issue ID,Issue Type,Summary,Description,Priority,Parent,Sprint,Labels
+1,Epic,M365 AI Agent Hardening Kit: Agent inventory & monitoring,M365 AI Agent Hardening Kit - Top 5,High,,,ai-agent-hardening
+2,Epic,M365 AI Agent Hardening Kit: Copilot Studio guardrails,M365 AI Agent Hardening Kit - Top 5,High,,,ai-agent-hardening
+3,Epic,M365 AI Agent Hardening Kit: Agent identities (Microsoft Entra Agent ID),M365 AI Agent Hardening Kit - Top 5,High,,,ai-agent-hardening
+4,Story,[AG01] Inventory every agent in the tenant,"Why: You cannot govern agents you cannot see. Agents show up in two places: Copilot Studio agents in Power Platform environments, and Microsoft Entra agent identities, which act with their own permissions. Most tenants have never listed either.
+
+Steps:
+# Power Platform admin center > Manage > Inventory (or Manage > Copilot Studio). It lists agents built in Copilot Studio and in Microsoft 365 Copilot Agent Builder. Select Download to export the full list to CSV with owner, environment and created date.
+# Entra agent identities: Microsoft Entra admin center > Agent ID, or run the read-only check below (Microsoft Graph, AgentIdentity.Read.All).
+# Record an owner and a business purpose for every agent in the tracker. An agent without a named owner goes on the review list.
+# Repeat monthly. New agents appear without any admin action.
+
+Impact: None. The inventory export and the Graph check only read data.
+Rollback: Nothing to roll back.
+
+Check (read-only):
+{code:powershell}
+$u = 'https://graph.microsoft.com/v1.0/servicePrincipals/microsoft.graph.agentIdentity?$select=id,displayName,accountEnabled,agentIdentityBlueprintId,createdDateTime'; $all = @(); while ($u) { $r = Invoke-MgGraphRequest -Method GET -Uri $u; $all += $r.value; $u = $r.'@odata.nextLink' }; ""Agent identities: $($all.Count)""; $all | ForEach-Object { ""$($_.displayName) | enabled: $($_.accountEnabled) | created: $($_.createdDateTime)"" }
+{code}
+
+Verify: Every Copilot Studio agent and every agent identity has an owner and a purpose recorded in the tracker.
+Licence: Any Microsoft 365 tenant. Inventory: Power Platform administrator, Global reader, or AI reader. Agent identities: AgentIdentity.Read.All (Agent ID Administrator for non-owners).
+Effort: 1 h
+Microsoft Learn: https://learn.microsoft.com/en-us/power-platform/admin/power-platform-inventory https://learn.microsoft.com/en-us/graph/api/agentidentity-list?view=graph-rest-1.0",Highest,1,Sprint 1 - AI agent baseline,ai-agent-hardening sprint-1
+5,Story,[AG02] Require user authentication for Copilot Studio agents,"Why: An agent published with No authentication can be used by anyone who reaches its channel, and it answers from whatever knowledge and tools the maker connected. Blocking one connector in a data policy makes authentication mandatory for publishing.
+
+Steps:
+# Power Platform admin center > Security > Data and privacy > Data policy.
+# Edit the policy that covers your Copilot Studio environments (or create one) and add the environments.
+# On Assign connectors, find 'Chat without Microsoft Entra ID authentication in Copilot Studio' and select Block.
+# Save, then open an agent in Copilot Studio: agents without authentication show an error banner and cannot be published until the maker selects Authenticate with Microsoft or Authenticate manually.
+# Tell makers before you switch it on. Use the downloadable violation list on the agent's Channels page to follow up.
+
+Impact: Makers can no longer publish agents set to No authentication: the Publish button is unavailable and an error banner appears until they choose Authenticate with Microsoft or Authenticate manually. Users must then sign in to chat with those agents. Microsoft Learn does not say whether agents already published without authentication keep working, so test on one environment first and tell makers before you switch it on.
+Rollback: Data policy > Edit Policy: move the connector out of Blocked (or remove the environment from the policy) and select Update policy. Agent-level exemptions are no longer supported, so roll back per policy or environment.
+
+Check (read-only):
+{code:powershell}
+$j = Get-DlpPolicy | ConvertTo-Json -Depth 30; if ($j -match 'Chat without Microsoft Entra ID authentication') { 'Connector is referenced in at least one data policy: confirm it is in the Blocked group for every Copilot Studio environment' } else { 'Connector not referenced in any data policy: agents can be published without authentication' }
+{code}
+
+Verify: Trying to publish a test agent with No authentication fails with a data policy error.
+Licence: Power Platform admin (included with Copilot Studio)
+Effort: 30 min
+Microsoft Learn: https://learn.microsoft.com/en-us/microsoft-copilot-studio/dlp-example-3 https://learn.microsoft.com/en-us/microsoft-copilot-studio/admin-data-loss-prevention",Highest,2,Sprint 1 - AI agent baseline,ai-agent-hardening sprint-1
+6,Story,[AG03] Block HTTP requests and channels you don't use,"Why: The HTTP connector lets an agent call any endpoint, which is the easiest exfiltration path. Public channels (Direct Line websites, Facebook, WhatsApp) put agents in front of people outside your tenant. Block what you don't use; allow specific endpoints where you need them.
+
+Steps:
+# List the channels and HTTP endpoints your approved agents actually use (AG01 inventory).
+# In the data policy for Copilot Studio environments, block 'HTTP', or keep it and use Configure connector > Connector endpoints to allow only the endpoints you listed.
+# Block unused channels: 'Direct Line channels in Copilot Studio', 'Facebook channel in Copilot Studio', 'WhatsApp channel in Copilot Studio', 'Omnichannel in Copilot Studio', 'SharePoint channel in Copilot Studio'.
+# Block 'Skills with Copilot Studio' if no agent uses Azure Bot Service skills.
+# Keep connectors used together in the same data group (Business, Non-business or Blocked): mixing groups in one agent is a policy violation.
+
+Impact: Agents that call blocked endpoints or use blocked channels stop working on those channels and show a data policy error in Copilot Studio. Agents that mix connectors from different data groups are flagged as violations.
+Rollback: Move the connector or channel back to the Business or Non-business group in the same data policy and select Update policy.
+
+Check (read-only):
+{code:powershell}
+$j = Get-DlpPolicy | ConvertTo-Json -Depth 30; foreach ($c in 'Direct Line channels in Copilot Studio','Facebook channel in Copilot Studio','WhatsApp channel in Copilot Studio','Omnichannel in Copilot Studio','SharePoint channel in Copilot Studio','Skills with Copilot Studio') { ""$c referenced in a data policy: $($j -match [regex]::Escape($c))"" }; ""HTTP connector referenced: $($j -match '""HTTP""')""
+{code}
+
+Verify: In the data policy, HTTP is blocked or endpoint-filtered, and every channel not on your approved list is in the Blocked group.
+Licence: Power Platform admin (included with Copilot Studio)
+Effort: 1 h
+Microsoft Learn: https://learn.microsoft.com/en-us/microsoft-copilot-studio/admin-data-loss-prevention",High,2,Sprint 1 - AI agent baseline,ai-agent-hardening sprint-1
+7,Story,"[AG04] Watch agent creation, publishing, sharing and authentication changes","Why: Copilot Studio logs maker activity to the Microsoft Purview audit log by default. The events that matter most are an agent being published, shared, or having its authentication changed. Reviewing them catches an agent that went public overnight.
+
+Steps:
+# Microsoft Purview portal > Solutions > Audit. Filter Activities for Copilot Studio activities and save the search.
+# Review these operations weekly: BotCreate, BotUpdateOperation-BotPublish, BotUpdateOperation-BotShare, BotUpdateOperation-BotAuthUpdate, BotDelete.
+# If you use Microsoft Sentinel, send the audit events there and alert on BotUpdateOperation-BotAuthUpdate and BotUpdateOperation-BotShare.
+# For every unexpected event, confirm with the agent owner and record the outcome in the tracker.
+
+Impact: None. Searching the audit log and saving a search change nothing. A Sentinel connector only adds ingestion cost for the events you send.
+Rollback: Delete the saved search or disable the analytics rule.
+
+Check (read-only):
+{code:powershell}
+$ops = 'BotCreate','BotUpdateOperation-BotPublish','BotUpdateOperation-BotShare','BotUpdateOperation-BotAuthUpdate','BotDelete'; $e = Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-30) -EndDate (Get-Date) -Operations $ops -ResultSize 5000; if (-not $e) { 'No Copilot Studio create/publish/share/auth/delete events in the last 30 days' } else { $e | Group-Object Operations | ForEach-Object { ""$($_.Name): $($_.Count)"" }; $e | Group-Object UserIds | ForEach-Object { ""by $($_.Name): $($_.Count)"" } }
+{code}
+
+Verify: A saved audit search (or SIEM rule) exists for the five operations, and last week's events were reviewed.
+Licence: Microsoft 365 audit (Standard). Users need an assigned Microsoft 365 licence for Copilot Studio events to be recorded.
+Effort: 1 h
+Microsoft Learn: https://learn.microsoft.com/en-us/microsoft-copilot-studio/admin-logging-copilot-studio",High,1,Sprint 1 - AI agent baseline,ai-agent-hardening sprint-1
+8,Story,[AG05] Block high-risk agent identities with Conditional Access,"Why: Autonomous agents sign in with their own agent identity, not a user, so your user Conditional Access policies don't cover them. Microsoft provides a policy that blocks agent identities that Entra ID Protection flags as high risk.
+
+Steps:
+# Microsoft Entra admin center > Entra ID > Conditional Access > Policies > New policy.
+# Users, agents or workload identities > What does this policy apply to? > Agents > Include: All agent identities.
+# Target resources > Include: All resources.
+# Conditions > Agent risk (Preview) > Configure: Yes > High.
+# Grant > Block. Enable policy: Report-only. Review the impact, then switch to On.
+# Agents that act through a user account or an agent user need separate policies: a policy on agent identities does not cover agent users.
+
+Impact: Agent identities that ID Protection rates as high risk are blocked from signing in to all resources, including legitimate agents if the risk signal is a false positive. Agent users and agents acting on behalf of a user are not covered by this policy. Run it in Report-only first and check the sign-in logs for agents that would be blocked.
+Rollback: Set Enable policy back to Report-only or Off. Keep the policy so you can switch it on again after the review.
+
+Check (read-only):
+{code:powershell}
+$p = Get-MgIdentityConditionalAccessPolicy -All | Where-Object { ($_ | ConvertTo-Json -Depth 10) -match 'agent' }; if (-not $p) { 'No Conditional Access policy references agents' } else { $p | ForEach-Object { ""$($_.DisplayName) [state: $($_.State)]"" } }
+{code}
+
+Verify: A policy targeting All agent identities with Agent risk = High and Block exists and is On (state: enabled) after the Report-only review.
+Licence: Microsoft Agent 365 + Entra ID P2 or Microsoft 365 E5 (risk-based), or Microsoft 365 E7. Agent risk is in preview.
+Effort: 30 min
+Microsoft Learn: https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-agent-block-high-risk https://learn.microsoft.com/en-us/entra/identity/conditional-access/agent-id",High,3,Sprint 1 - AI agent baseline,ai-agent-hardening sprint-1
