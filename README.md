@@ -1,5 +1,9 @@
 # M365 AI Agent Hardening Kit: Top 5 (free)
 
+[![M365 AI Agent Hardening Kit: Top 5 (free)](assets/cover.png)](https://runbooklabhq.com/kits/ai-agent-hardening/)
+
+**[Every control on the kit page](https://runbooklabhq.com/kits/ai-agent-hardening/)** · [Microsoft 365 deadline calendar](https://runbooklabhq.com/guides/deadlines/) · [Runbook Lab](https://runbooklabhq.com/)
+
 Five controls to put guardrails around AI agents in Microsoft 365: Copilot Studio agents (including agents built in Microsoft 365 Copilot Agent Builder) and Microsoft Entra agent identities. Packaged as a project you can run this week: guide, Jira backlog, tracker and read-only PowerShell checks.
 
 | File | What it is |
